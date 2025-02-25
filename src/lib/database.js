@@ -402,10 +402,21 @@ const tournamentDb = {
     const standings = await db.all(query, params);
     await db.close();
     return standings;
+  },
+  
+  async getTournament(tournamentId) {
+    const db = await openDb();
+    const tournament = await db.get(
+      'SELECT * FROM tournaments WHERE id = ?',
+      [tournamentId]
+    );
+    await db.close();
+    return tournament;
   }
 };
 
 module.exports = {
+  openDb,
   initializeDb,
   judgeDb,
   debateDb,

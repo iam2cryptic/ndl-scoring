@@ -2,14 +2,12 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { AlertCircle, CheckCircle2 } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Info } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { processAdjudicatorData, processDrawData } from '@/lib/tabbycat-integration';
 
 export default function TournamentManagementPage() {
-  const [tournaments, setTournaments] = useState([
-    // Mock data - in production this would come from the API
-    { id: 1, name: 'NDL Season 1', current_round: 2 }
-  ]);
+  const [tournaments, setTournaments] = useState([]);
   const [selectedTournament, setSelectedTournament] = useState(null);
   const [currentRound, setCurrentRound] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -29,23 +27,53 @@ export default function TournamentManagementPage() {
   const [importFile, setImportFile] = useState(null);
   const [judgeKeys, setJudgeKeys] = useState(null);
   
+  // Fetch tournaments on component mount
+  useEffect(() => {
+    const fetchTournaments = async () => {
+      try {
+        setLoading(true);
+        
+        // In a production app, this would be a fetch from your API
+        // For now, we're using mock data
+        setTournaments([
+          { id: 1, name: 'NDL Season 1', current_round: 2 }
+        ]);
+        
+        setLoading(false);
+      } catch (error) {
+        console.error('Error fetching tournaments:', error);
+        setError('Failed to load tournaments');
+        setLoading(false);
+      }
+    };
+    
+    fetchTournaments();
+  }, []);
+  
   useEffect(() => {
     if (selectedTournament) {
-      // In a real app, fetch tournament stats from API
+      fetchTournamentStats();
       setCurrentRound(selectedTournament.current_round);
-      
-      // Mock stats - in production this would come from API
+    }
+  }, [selectedTournament]);
+  
+  const fetchTournamentStats = async () => {
+    try {
+      // In a production app, this would be a fetch from your API
+      // For now, we're using mock data
       setStats({
         judgeCount: 15,
         debateCount: 8,
         submissionRate: 75,
         pendingDebates: 2
       });
+    } catch (error) {
+      console.error('Error fetching tournament stats:', error);
     }
-  }, [selectedTournament]);
+  };
   
   const handleTournamentSelect = (tournamentId) => {
-    const tournament = tournaments.find(t => t.id === tournamentId);
+    const tournament = tournaments.find(t => t.id === Number(tournamentId));
     setSelectedTournament(tournament);
   };
   
@@ -55,34 +83,32 @@ export default function TournamentManagementPage() {
     setSuccess(null);
     
     try {
-      // In a real app, this would be an API call
-      // const response = await fetch('/api/tournament/round', {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify({ tournamentId: selectedTournament.id, round: currentRound })
-      // });
+      const response = await fetch('/api/tournament/round', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tournamentId: selectedTournament.id, round: currentRound })
+      });
       
-      // if (!response.ok) {
-      //   throw new Error('Failed to update round');
-      // }
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to update round');
+      }
       
-      // Simulate successful update
-      setTimeout(() => {
-        const updatedTournaments = tournaments.map(t => 
-          t.id === selectedTournament.id 
-            ? { ...t, current_round: currentRound } 
-            : t
-        );
-        
-        setTournaments(updatedTournaments);
-        setSelectedTournament({ ...selectedTournament, current_round: currentRound });
-        setSuccess('Round updated successfully');
-        setLoading(false);
-      }, 1000);
+      const data = await response.json();
       
+      const updatedTournaments = tournaments.map(t => 
+        t.id === selectedTournament.id 
+          ? { ...t, current_round: currentRound } 
+          : t
+      );
+      
+      setTournaments(updatedTournaments);
+      setSelectedTournament({ ...selectedTournament, current_round: currentRound });
+      setSuccess(data.message || 'Round updated successfully');
     } catch (error) {
       console.error('Error updating round:', error);
       setError(error.message || 'Failed to update round');
+    } finally {
       setLoading(false);
     }
   };
@@ -104,43 +130,82 @@ export default function TournamentManagementPage() {
     setSuccess(null);
     
     try {
-      // In a real app, this would upload the file to the server
-      // const formData = new FormData();
-      // formData.append('file', importFile);
-      // formData.append('type', importType);
-      // formData.append('tournamentId', selectedTournament.id);
-      
-      // if (importType === 'draw' && judgeKeys) {
-      //   formData.append('judgeKeys', JSON.stringify(judgeKeys));
-      // }
-      
-      // const response = await fetch('/api/tabbycat/import', {
-      //   method: 'POST',
-      //   body: formData
-      // });
-      
-      // Simulate successful import
-      setTimeout(() => {
-        if (importType === 'adjudicators') {
-          // Mock successful adjudicator import
-          setJudgeKeys({
-            'adj_1': 'judge_abc123',
-            'adj_2': 'judge_def456',
-            'adj_3': 'judge_ghi789'
-          });
-          setSuccess(`Imported ${importFile.name} successfully. 3 judges imported.`);
-        } else if (importType === 'draw') {
-          setSuccess(`Imported ${importFile.name} successfully. Round ${currentRound + 1} created with 4 debates.`);
-          // Update current round
-          setCurrentRound(currentRound + 1);
+      // For adjudicator imports, we need to parse and process the data first
+      if (importType === 'adjudicators') {
+        const fileContent = await importFile.text();
+        const adjData = JSON.parse(fileContent);
+        
+        // Process the adjudicator data locally
+        const { judgeKeys: keys, judges } = processAdjudicatorData(adjData);
+        
+        // Now send this processed data to the server
+        const response = await fetch('/api/tabbycat/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'adjudicators',
+            data: { judges, judgeKeys: keys },
+            tournamentId: selectedTournament.id
+          })
+        });
+        
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Failed to import adjudicators');
         }
         
-        setLoading(false);
-      }, 1500);
-      
+        const data = await response.json();
+        
+        setJudgeKeys(keys);
+        setSuccess(`Imported ${importFile.name} successfully. ${Object.keys(judges).length} judges imported.`);
+      } 
+      // For draw imports, we need the judgeKeys to be available
+      else if (importType === 'draw') {
+        if (!judgeKeys) {
+          throw new Error('Please import adjudicators first');
+        }
+        
+        const fileContent = await importFile.text();
+        const drawData = JSON.parse(fileContent);
+        
+        // Process the draw data locally
+        const processedData = processDrawData(drawData, judgeKeys);
+        
+        // Send the processed data to the server
+        const response = await fetch('/api/tabbycat/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'draw',
+            data: processedData,
+            tournamentId: selectedTournament.id
+          })
+        });
+        
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Failed to import draw');
+        }
+        
+        const data = await response.json();
+        
+        // Update tournament and round information
+        const updatedTournaments = tournaments.map(t => 
+          t.id === selectedTournament.id 
+            ? { ...t, current_round: processedData.round } 
+            : t
+        );
+        
+        setTournaments(updatedTournaments);
+        setSelectedTournament({ ...selectedTournament, current_round: processedData.round });
+        setCurrentRound(processedData.round);
+        
+        setSuccess(`Imported ${importFile.name} successfully. Round ${processedData.round} created with ${Object.keys(processedData.debates).length} debates.`);
+      }
     } catch (error) {
       console.error('Error importing file:', error);
       setError(error.message || 'Failed to import file');
+    } finally {
       setLoading(false);
     }
   };
@@ -229,17 +294,28 @@ export default function TournamentManagementPage() {
             <div className="bg-white p-6 rounded-lg shadow border border-gray-200">
               <h2 className="text-lg font-medium mb-4">Tournament Actions</h2>
               
-              <div className="mb-4">
-                <a 
-                  href={`/standings?tournament=${selectedTournament.id}`}
-                  className="inline-block py-2 px-4 bg-blue-600 text-white rounded hover:bg-blue-700"
-                >
-                  View Speaker Standings
-                </a>
+              <div className="space-y-3">
+                <div>
+                  <a 
+                    href={`/standings?tournament=${selectedTournament.id}`}
+                    className="inline-block py-2 px-4 bg-blue-600 text-white rounded hover:bg-blue-700"
+                  >
+                    View Speaker Standings
+                  </a>
+                </div>
+                
+                <div>
+                  <a 
+                    href="/admin/speakers"
+                    className="inline-block py-2 px-4 bg-blue-600 text-white rounded hover:bg-blue-700"
+                  >
+                    Manage Speakers
+                  </a>
+                </div>
               </div>
               
               {stats.pendingDebates > 0 && (
-                <div className="p-3 bg-yellow-50 border border-yellow-200 rounded mb-4">
+                <div className="p-3 bg-yellow-50 border border-yellow-200 rounded my-4">
                   <p className="text-sm text-yellow-800">
                     <span className="font-medium">Warning:</span> {stats.pendingDebates} debates have not 
                     been submitted for the current round.
@@ -247,7 +323,7 @@ export default function TournamentManagementPage() {
                 </div>
               )}
               
-              <div className="flex space-x-4">
+              <div className="flex space-x-4 mt-4">
                 <button
                   disabled={stats.pendingDebates > 0}
                   className={`py-2 px-4 rounded ${
@@ -258,19 +334,19 @@ export default function TournamentManagementPage() {
                 >
                   Generate Reports
                 </button>
-                
-                <button
-                  onClick={() => window.location.href = '/admin'}
-                  className="py-2 px-4 bg-gray-200 text-gray-800 rounded hover:bg-gray-300"
-                >
-                  Import Data
-                </button>
               </div>
             </div>
           </div>
           
           <div className="bg-white p-6 rounded-lg shadow border border-gray-200 mb-8">
             <h2 className="text-lg font-medium mb-4">Import Data from Tabbycat</h2>
+            
+            <Alert className="mb-4 bg-blue-50 border-blue-200">
+              <Info className="h-4 w-4 text-blue-600" />
+              <AlertDescription className="text-blue-800">
+                Follow the two-step process: First import adjudicators, then import the draw.
+              </AlertDescription>
+            </Alert>
             
             <form onSubmit={handleImport}>
               <div className="mb-4">
@@ -291,6 +367,30 @@ export default function TournamentManagementPage() {
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   JSON File
                 </label>
+                
+                {importType === 'adjudicators' && (
+                  <div className="mb-2 p-3 bg-gray-50 border border-gray-200 rounded text-sm text-gray-700">
+                    <p className="font-medium mb-1">To export adjudicator data from Tabbycat:</p>
+                    <ol className="list-decimal list-inside space-y-1">
+                      <li>Go to Tabbycat admin interface</li>
+                      <li>Navigate to <strong>Participants → Adjudicators</strong></li>
+                      <li>Click the <strong>"Edit Adjudicators"</strong> button</li>
+                      <li>At the bottom of the page, click <strong>"Export all adjudicators as JSON"</strong></li>
+                    </ol>
+                  </div>
+                )}
+                
+                {importType === 'draw' && (
+                  <div className="mb-2 p-3 bg-gray-50 border border-gray-200 rounded text-sm text-gray-700">
+                    <p className="font-medium mb-1">To export round draw from Tabbycat:</p>
+                    <ol className="list-decimal list-inside space-y-1">
+                      <li>Go to Tabbycat admin interface</li>
+                      <li>Navigate to <strong>Results → Export Current Round</strong></li>
+                      <li>Select <strong>"JSON"</strong> format and download</li>
+                    </ol>
+                  </div>
+                )}
+                
                 <input
                   type="file"
                   accept=".json"
@@ -307,7 +407,7 @@ export default function TournamentManagementPage() {
               {importType === 'draw' && !judgeKeys && (
                 <div className="p-3 bg-yellow-50 border border-yellow-200 rounded mb-4">
                   <p className="text-sm text-yellow-800">
-                    Please import adjudicators first before importing a draw.
+                    <strong>Important:</strong> Please import adjudicators first before importing a draw.
                   </p>
                 </div>
               )}
