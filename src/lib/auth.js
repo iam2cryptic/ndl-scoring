@@ -7,8 +7,8 @@ import { useRouter } from 'next/navigation';
 // Create the authentication context
 const AuthContext = createContext();
 
-// Mock user database - in production this would be your real database
-const USERS = {
+// Default users (used when no environment variables are set)
+const DEFAULT_USERS = {
   'admin@example.com': { 
     password: 'password123', 
     name: 'Admin User',
@@ -20,6 +20,12 @@ const USERS = {
     role: 'tabstaff'
   }
 };
+
+// Get users from environment variables if available, otherwise use defaults
+// In production, these would be set in your environment or .env.local file
+const USERS = process.env.NEXT_PUBLIC_AUTH_ENABLED === 'true' 
+  ? JSON.parse(process.env.NEXT_PUBLIC_USERS || '{}')
+  : DEFAULT_USERS;
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);

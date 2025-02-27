@@ -1,5 +1,5 @@
 // scripts/init-db.js
-const { initializeDb } = require('../src/lib/database');
+import { initializeDb } from '../src/lib/database.js';
 
 console.log('Initializing database...');
 

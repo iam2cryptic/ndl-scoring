@@ -2,6 +2,7 @@
   "name": "ndl-scoring",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "node src/server.js",
     "build": "next build",
@@ -9,7 +10,8 @@
     "start:windows": "set NODE_ENV=production && node src/server.js",
     "start:unix": "NODE_ENV=production node src/server.js",
     "init-db": "node scripts/init-db.js",
-    "seed-db": "node scripts/seed-data.js"
+    "seed-db": "node scripts/seed-data.js",
+    "backup-db": "node scripts/backup-db.js"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

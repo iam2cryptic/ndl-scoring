@@ -1,12 +1,12 @@
 // src/lib/database.js
-const sqlite3 = require('sqlite3').verbose();
-const { open } = require('sqlite');
-const path = require('path');
+import sqlite3 from 'sqlite3';
+import { open } from 'sqlite';
+import path from 'path';
 
 /**
  * Initialize and open the database connection
  */
-async function openDb() {
+export async function openDb() {
   return open({
     filename: path.join(process.cwd(), 'ndl-scoring.db'),
     driver: sqlite3.Database
@@ -16,7 +16,7 @@ async function openDb() {
 /**
  * Initialize database schema
  */
-async function initializeDb() {
+export async function initializeDb() {
   const db = await openDb();
   
   await db.exec(`
@@ -127,7 +127,7 @@ async function initializeDb() {
 }
 
 // Database CRUD operations for judges
-const judgeDb = {
+export const judgeDb = {
   async createJudge(judge) {
     const db = await openDb();
     await db.run(
@@ -200,7 +200,7 @@ const judgeDb = {
 };
 
 // Database operations for debates and rankings
-const debateDb = {
+export const debateDb = {
   async createDebate(debate) {
     const db = await openDb();
     await db.run(
@@ -359,7 +359,7 @@ async function updateSpeakerStanding(db, speakerId, tournamentId) {
 }
 
 // Database operations for tournaments
-const tournamentDb = {
+export const tournamentDb = {  
   async createTournament(name) {
     const db = await openDb();
     const result = await db.run(
@@ -369,6 +369,13 @@ const tournamentDb = {
     const id = result.lastID;
     await db.close();
     return id;
+  },
+  
+  async getTournament(tournamentId) {
+    const db = await openDb();
+    const tournament = await db.get('SELECT * FROM tournaments WHERE id = ?', [tournamentId]);
+    await db.close();
+    return tournament;
   },
   
   async setCurrentRound(tournamentId, round) {
@@ -402,23 +409,5 @@ const tournamentDb = {
     const standings = await db.all(query, params);
     await db.close();
     return standings;
-  },
-  
-  async getTournament(tournamentId) {
-    const db = await openDb();
-    const tournament = await db.get(
-      'SELECT * FROM tournaments WHERE id = ?',
-      [tournamentId]
-    );
-    await db.close();
-    return tournament;
   }
-};
-
-module.exports = {
-  openDb,
-  initializeDb,
-  judgeDb,
-  debateDb,
-  tournamentDb
 };

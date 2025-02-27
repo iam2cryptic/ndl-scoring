@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react';
 import { DndContext, closestCenter } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { AlertCircle, CheckCircle2 } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Info } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
 const SpeakerItem = ({ id, name, team, position }) => {
@@ -45,6 +45,8 @@ const RankingInterface = ({ debate, judge, judgeKey }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState(null);
   const [isLoading, setIsLoading] = useState(!debate || !debate.speakers);
+  const [validationWarning, setValidationWarning] = useState(null);
+  const [confirmSubmit, setConfirmSubmit] = useState(false);
   
   // Set speakers state after we confirm debate.speakers exists
   useEffect(() => {
@@ -66,19 +68,52 @@ const RankingInterface = ({ debate, judge, judgeKey }) => {
         const [removed] = newItems.splice(oldIndex, 1);
         newItems.splice(newIndex, 0, removed);
         
+        // Reset any validation warnings since the order changed
+        setValidationWarning(null);
+        setConfirmSubmit(false);
+        
         return newItems;
       });
     }
   };
 
+  // Validate ranking order
+  const validateRankings = () => {
+    if (speakers.length !== 6) {
+      return "All six speakers must be ranked";
+    }
+    
+    // Check if speakers from the same team are ranked consecutively
+    // This is just a warning, not an error
+    for (let i = 0; i < speakers.length - 1; i++) {
+      if (speakers[i].team === speakers[i + 1].team) {
+        return `You've ranked speakers from the same team (${speakers[i].team}) consecutively. This is unusual but allowed.`;
+      }
+    }
+    
+    return null;
+  };
+
   const handleSubmit = async () => {
+    setError(null);
+    
+    // First level validation
     if (speakers.length !== 6) {
       setError("All six speakers must be ranked");
       return;
     }
-
+    
+    // Second level validation - warnings but not errors
+    const warning = validateRankings();
+    if (warning && !confirmSubmit) {
+      setValidationWarning(warning);
+      setConfirmSubmit(true);
+      return;
+    }
+    
     setIsSubmitting(true);
     setError(null);
+    setValidationWarning(null);
 
     try {
       // Convert speakers array to rankings object
@@ -87,17 +122,21 @@ const RankingInterface = ({ debate, judge, judgeKey }) => {
         rankings[speaker.id] = index + 1;
       });
 
+      // Add timestamp to the data (for judging time tracking)
+      const submissionData = {
+        judgeKey,
+        debateId: debate.id,
+        rankings,
+        submittedAt: new Date().toISOString()
+      };
+
       // Submit rankings to API
       const response = await fetch('/api/rankings/submit', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          judgeKey,
-          debateId: debate.id,
-          rankings
-        }),
+        body: JSON.stringify(submissionData),
       });
 
       if (!response.ok) {
@@ -111,6 +150,7 @@ const RankingInterface = ({ debate, judge, judgeKey }) => {
       setError(error.message || "Failed to submit rankings. Please try again.");
     } finally {
       setIsSubmitting(false);
+      setConfirmSubmit(false);
     }
   };
 
@@ -152,6 +192,17 @@ const RankingInterface = ({ debate, judge, judgeKey }) => {
         <p className="mt-4 text-center text-gray-600">
           You may now close this window or wait for the next round to be announced.
         </p>
+        <div className="mt-8 p-4 bg-gray-50 rounded-lg border border-gray-200">
+          <h3 className="font-medium mb-2">Your Submitted Rankings:</h3>
+          <ol className="list-decimal pl-5">
+            {speakers.map((speaker) => (
+              <li key={speaker.id} className="mb-1">
+                <span className="font-medium">{speaker.name}</span>
+                <span className="text-gray-600 text-sm ml-1">({speaker.team})</span>
+              </li>
+            ))}
+          </ol>
+        </div>
       </div>
     );
   }
@@ -161,7 +212,7 @@ const RankingInterface = ({ debate, judge, judgeKey }) => {
       <div className="mb-6">
         <h1 className="text-2xl font-bold mb-2">Submit Speaker Rankings</h1>
         <p className="text-gray-600 mb-4">
-          Round {debate.round}: {debate.affTeam} vs {debate.negTeam} - {debate.venue}
+          Round {debate.round}: {debate.aff_team} vs {debate.neg_team} - {debate.venue}
         </p>
         <p className="text-sm text-gray-600 mb-6">
           Drag and drop speakers to rank them from 1st (top) to 6th (bottom)
@@ -172,6 +223,18 @@ const RankingInterface = ({ debate, judge, judgeKey }) => {
         <Alert className="mb-4 bg-red-50 border-red-200">
           <AlertCircle className="h-4 w-4 text-red-600" />
           <AlertDescription className="text-red-800">{error}</AlertDescription>
+        </Alert>
+      )}
+      
+      {validationWarning && (
+        <Alert className="mb-4 bg-yellow-50 border-yellow-200">
+          <Info className="h-4 w-4 text-yellow-600" />
+          <AlertDescription className="text-yellow-800">
+            {validationWarning}
+            <div className="mt-2">
+              Click "Submit Rankings" again to confirm if this is intentional.
+            </div>
+          </AlertDescription>
         </Alert>
       )}
 
@@ -196,10 +259,12 @@ const RankingInterface = ({ debate, judge, judgeKey }) => {
         className={`w-full py-3 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
           isSubmitting 
             ? 'bg-gray-400 cursor-not-allowed' 
-            : 'bg-blue-600 text-white hover:bg-blue-700'
+            : confirmSubmit
+              ? 'bg-yellow-600 text-white hover:bg-yellow-700'
+              : 'bg-blue-600 text-white hover:bg-blue-700'
         }`}
       >
-        {isSubmitting ? 'Submitting...' : 'Submit Rankings'}
+        {isSubmitting ? 'Submitting...' : confirmSubmit ? 'Confirm Submit' : 'Submit Rankings'}
       </button>
     </div>
   );

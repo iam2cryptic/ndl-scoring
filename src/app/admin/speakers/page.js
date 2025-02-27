@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { AlertCircle, CheckCircle2, PlusCircle, Trash2, RefreshCw } from 'lucide-react';
+import { AlertCircle, CheckCircle2, PlusCircle, Trash2, RefreshCw, Upload } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
 export default function SpeakersManagementPage() {
@@ -20,14 +20,35 @@ export default function SpeakersManagementPage() {
     tabbycat_id: ''
   });
   
+  // Import options
+  const [importMethod, setImportMethod] = useState('csv'); // 'csv' or 'tabbycat'
+  const [tabbycatFile, setTabbycatFile] = useState(null);
+  
   // Load tournaments on page load
   useEffect(() => {
-    // In a real app, you would fetch this from the API
-    // This is just a placeholder with mock data for now
-    setTournaments([
-      { id: 1, name: 'NDL Season 1', current_round: 2 }
-    ]);
+    fetchTournaments();
   }, []);
+  
+  const fetchTournaments = async () => {
+    try {
+      const response = await fetch('/api/tournaments');
+      if (response.ok) {
+        const data = await response.json();
+        setTournaments(data.tournaments || []);
+      } else {
+        // Fallback to mock data if API fails
+        setTournaments([
+          { id: 1, name: 'NDL Season 1', current_round: 2 }
+        ]);
+      }
+    } catch (error) {
+      console.error('Error fetching tournaments:', error);
+      // Fallback to mock data if API fails
+      setTournaments([
+        { id: 1, name: 'NDL Season 1', current_round: 2 }
+      ]);
+    }
+  };
   
   // When a tournament is selected, load its speakers
   useEffect(() => {
@@ -42,7 +63,6 @@ export default function SpeakersManagementPage() {
     
     try {
       // Here you would fetch speakers from your API
-      // For now, we'll use mock data
       const response = await fetch(`/api/speakers?tournament=${tournamentId}`);
       
       if (!response.ok) {
@@ -149,6 +169,16 @@ export default function SpeakersManagementPage() {
     }
   };
   
+  const handleFileChange = (e) => {
+    if (importMethod === 'csv') {
+      // CSV file for basic import
+      handleBulkImport(e);
+    } else {
+      // Tabbycat JSON file
+      setTabbycatFile(e.target.files[0]);
+    }
+  };
+  
   const handleBulkImport = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -178,6 +208,54 @@ export default function SpeakersManagementPage() {
     } catch (error) {
       console.error('Error importing speakers:', error);
       setError(error.message || 'Failed to import speakers');
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  const handleImportTabbycat = async () => {
+    if (!tabbycatFile) {
+      setError('Please select a Tabbycat export file');
+      return;
+    }
+    
+    setLoading(true);
+    setError(null);
+    setSuccess(null);
+    
+    try {
+      // Read the file
+      const fileContent = await tabbycatFile.text();
+      const tabbycatData = JSON.parse(fileContent);
+      
+      // Send to API for processing
+      const response = await fetch('/api/speakers/import-tabbycat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          data: tabbycatData,
+          tournamentId: selectedTournament.id
+        }),
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to import speakers from Tabbycat');
+      }
+      
+      const data = await response.json();
+      
+      fetchSpeakers(selectedTournament.id);
+      setSuccess(`Imported ${data.insertedCount} new speakers and updated ${data.updatedCount} existing speakers`);
+      
+      // Reset file input
+      setTabbycatFile(null);
+      
+    } catch (error) {
+      console.error('Error importing speakers from Tabbycat:', error);
+      setError(error.message || 'Failed to import speakers from Tabbycat');
     } finally {
       setLoading(false);
     }
@@ -307,25 +385,106 @@ export default function SpeakersManagementPage() {
           
           <div className="mb-8">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-medium">Bulk Import</h2>
+              <h2 className="text-lg font-medium">Import Speakers</h2>
             </div>
             
             <div className="bg-white p-4 rounded-lg border border-gray-200">
-              <p className="text-sm text-gray-600 mb-4">
-                Import multiple speakers at once from a CSV file. The file should have columns for: name, team, position, tabbycat_id (optional).
-              </p>
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Import Method
+                </label>
+                <div className="flex space-x-4">
+                  <label className="inline-flex items-center">
+                    <input
+                      type="radio"
+                      className="form-radio"
+                      name="importMethod"
+                      value="csv"
+                      checked={importMethod === 'csv'}
+                      onChange={() => setImportMethod('csv')}
+                    />
+                    <span className="ml-2">CSV File</span>
+                  </label>
+                  <label className="inline-flex items-center">
+                    <input
+                      type="radio"
+                      className="form-radio"
+                      name="importMethod"
+                      value="tabbycat"
+                      checked={importMethod === 'tabbycat'}
+                      onChange={() => setImportMethod('tabbycat')}
+                    />
+                    <span className="ml-2">Tabbycat Export</span>
+                  </label>
+                </div>
+              </div>
               
-              <input
-                type="file"
-                accept=".csv"
-                onChange={handleBulkImport}
-                className="block w-full text-sm text-gray-500
-                file:mr-4 file:py-2 file:px-4
-                file:rounded-md file:border-0
-                file:text-sm file:font-semibold
-                file:bg-blue-50 file:text-blue-700
-                hover:file:bg-blue-100"
-              />
+              {importMethod === 'csv' ? (
+                <>
+                  <p className="text-sm text-gray-600 mb-4">
+                    Import multiple speakers from a CSV file. The file should have columns for: name, team, position, tabbycat_id (optional).
+                  </p>
+                  
+                  <input
+                    type="file"
+                    accept=".csv"
+                    onChange={handleFileChange}
+                    className="block w-full text-sm text-gray-500
+                    file:mr-4 file:py-2 file:px-4
+                    file:rounded-md file:border-0
+                    file:text-sm file:font-semibold
+                    file:bg-blue-50 file:text-blue-700
+                    hover:file:bg-blue-100"
+                  />
+                </>
+              ) : (
+                <>
+                  <div className="mb-4">
+                    <p className="text-sm text-gray-600 mb-2">
+                      Import speakers directly from a Tabbycat export file.
+                    </p>
+                    
+                    <div className="p-3 bg-gray-50 border border-gray-200 rounded text-sm text-gray-700 mb-4">
+                      <p className="font-medium mb-1">To export speaker data from Tabbycat:</p>
+                      <ol className="list-decimal list-inside space-y-1">
+                        <li>Go to Tabbycat admin interface</li>
+                        <li>Navigate to <strong>Participants → Speakers</strong></li>
+                        <li>Click the <strong>"Edit Speakers"</strong> button</li>
+                        <li>At the bottom of the page, click <strong>"Export all speakers as JSON"</strong></li>
+                      </ol>
+                    </div>
+                    
+                    <input
+                      type="file"
+                      accept=".json"
+                      onChange={handleFileChange}
+                      className="block w-full text-sm text-gray-500
+                      file:mr-4 file:py-2 file:px-4
+                      file:rounded-md file:border-0
+                      file:text-sm file:font-semibold
+                      file:bg-blue-50 file:text-blue-700
+                      hover:file:bg-blue-100"
+                    />
+                    
+                    {tabbycatFile && (
+                      <div className="mt-2">
+                        <button
+                          onClick={handleImportTabbycat}
+                          disabled={loading}
+                          className={`flex items-center py-2 px-4 rounded ${
+                            loading 
+                              ? 'bg-gray-300 cursor-not-allowed' 
+                              : 'bg-blue-600 text-white hover:bg-blue-700'
+                          }`}
+                        >
+                          <Upload className="h-4 w-4 mr-2" />
+                          Import Speakers from Tabbycat
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           </div>
           

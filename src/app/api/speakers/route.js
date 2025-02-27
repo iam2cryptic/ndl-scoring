@@ -1,7 +1,6 @@
 // src/app/api/speakers/route.js
 import { NextResponse } from 'next/server';
-import { tournamentDb } from '@/lib/database';
-import { sql } from 'sqlite';
+import { openDb } from '@/lib/database'; // Import openDb directly instead of using tournamentDb.openDb
 
 // GET /api/speakers
 export async function GET(request) {
@@ -9,8 +8,8 @@ export async function GET(request) {
     const { searchParams } = new URL(request.url);
     const tournamentId = searchParams.get('tournament') || 1;
     
-    // Open the database connection
-    const db = await tournamentDb.openDb();
+    // Open the database connection using the direct import
+    const db = await openDb();
     
     // Get speakers for the tournament
     const speakers = await db.all(`
