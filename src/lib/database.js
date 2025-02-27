@@ -229,6 +229,29 @@ export const debateDb = {
     await db.close();
   },
   
+  async getJudgeAssignment(judgeKey, debateId) {
+    const db = await openDb();
+    const assignment = await db.get(
+      `SELECT * FROM judge_assignments 
+       WHERE judge_key = ? AND debate_id = ?`,
+      [judgeKey, debateId]
+    );
+    await db.close();
+    return assignment;
+  },
+  
+  async getDebateSpeakers(debateId) {
+    const db = await openDb();
+    const speakers = await db.all(`
+      SELECT s.*
+      FROM speakers s
+      JOIN debate_speakers ds ON s.id = ds.speaker_id
+      WHERE ds.debate_id = ?
+    `, [debateId]);
+    await db.close();
+    return speakers;
+  },
+  
   async submitRankings(judgeKey, debateId, rankings) {
     const db = await openDb();
     

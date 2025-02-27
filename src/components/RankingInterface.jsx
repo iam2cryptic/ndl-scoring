@@ -47,11 +47,19 @@ const RankingInterface = ({ debate, judge, judgeKey }) => {
   const [isLoading, setIsLoading] = useState(!debate || !debate.speakers);
   const [validationWarning, setValidationWarning] = useState(null);
   const [confirmSubmit, setConfirmSubmit] = useState(false);
+  const [showInstructions, setShowInstructions] = useState(true);
   
   // Set speakers state after we confirm debate.speakers exists
   useEffect(() => {
     if (debate && debate.speakers) {
-      setSpeakers(debate.speakers);
+      // Ensure we have exactly 6 speakers
+      if (debate.speakers.length !== 6) {
+        setError(`Expected 6 speakers but found ${debate.speakers.length}. Please contact the tournament organizer.`);
+      } else {
+        // Randomize initial speaker order to avoid bias
+        const shuffled = [...debate.speakers].sort(() => Math.random() - 0.5);
+        setSpeakers(shuffled);
+      }
       setIsLoading(false);
     }
   }, [debate]);
@@ -59,10 +67,19 @@ const RankingInterface = ({ debate, judge, judgeKey }) => {
   const handleDragEnd = (event) => {
     const { active, over } = event;
     
+    if (!active || !over) {
+      return; // Protect against null values
+    }
+    
     if (active.id !== over.id) {
       setSpeakers((items) => {
         const oldIndex = items.findIndex((i) => i.id === active.id);
         const newIndex = items.findIndex((i) => i.id === over.id);
+        
+        // Safety check for invalid indexes
+        if (oldIndex === -1 || newIndex === -1) {
+          return items;
+        }
         
         const newItems = [...items];
         const [removed] = newItems.splice(oldIndex, 1);
@@ -79,7 +96,7 @@ const RankingInterface = ({ debate, judge, judgeKey }) => {
 
   // Validate ranking order
   const validateRankings = () => {
-    if (speakers.length !== 6) {
+    if (!speakers || speakers.length !== 6) {
       return "All six speakers must be ranked";
     }
     
@@ -91,6 +108,18 @@ const RankingInterface = ({ debate, judge, judgeKey }) => {
       }
     }
     
+    // Check if the top 3 positions are all from the same team
+    const topThreeTeams = new Set(speakers.slice(0, 3).map(s => s.team));
+    if (topThreeTeams.size === 1) {
+      return `You've ranked all speakers from ${speakers[0].team} in the top 3 positions. This is unusual but allowed.`;
+    }
+    
+    // Check if the bottom 3 positions are all from the same team
+    const bottomThreeTeams = new Set(speakers.slice(3, 6).map(s => s.team));
+    if (bottomThreeTeams.size === 1) {
+      return `You've ranked all speakers from ${speakers[3].team} in the bottom 3 positions. This is unusual but allowed.`;
+    }
+    
     return null;
   };
 
@@ -98,7 +127,7 @@ const RankingInterface = ({ debate, judge, judgeKey }) => {
     setError(null);
     
     // First level validation
-    if (speakers.length !== 6) {
+    if (!speakers || speakers.length !== 6) {
       setError("All six speakers must be ranked");
       return;
     }
@@ -130,21 +159,40 @@ const RankingInterface = ({ debate, judge, judgeKey }) => {
         submittedAt: new Date().toISOString()
       };
 
-      // Submit rankings to API
-      const response = await fetch('/api/rankings/submit', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(submissionData),
-      });
+      // Submit rankings to API with timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10-second timeout
+      
+      try {
+        const response = await fetch('/api/rankings/submit', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(submissionData),
+          signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (!response.ok) {
+          let errorMessage = 'Failed to submit rankings';
+          try {
+            const data = await response.json();
+            errorMessage = data.error || errorMessage;
+          } catch (e) {
+            // If JSON parsing fails, use the default error
+          }
+          throw new Error(errorMessage);
+        }
 
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || 'Failed to submit rankings');
+        setIsSubmitted(true);
+      } catch (fetchError) {
+        if (fetchError.name === 'AbortError') {
+          throw new Error('Request timed out. Your rankings may not have been submitted.');
+        }
+        throw fetchError;
       }
-
-      setIsSubmitted(true);
     } catch (error) {
       console.error('Error submitting rankings:', error);
       setError(error.message || "Failed to submit rankings. Please try again.");
@@ -173,7 +221,7 @@ const RankingInterface = ({ debate, judge, judgeKey }) => {
         <Alert className="bg-red-50 border-red-200">
           <AlertCircle className="h-4 w-4 text-red-600" />
           <AlertDescription className="text-red-800">
-            Unable to load debate information. Please try refreshing the page.
+            {error || "Unable to load debate information. Please try refreshing the page."}
           </AlertDescription>
         </Alert>
       </div>
@@ -214,6 +262,29 @@ const RankingInterface = ({ debate, judge, judgeKey }) => {
         <p className="text-gray-600 mb-4">
           Round {debate.round}: {debate.aff_team} vs {debate.neg_team} - {debate.venue}
         </p>
+        
+        {showInstructions && (
+          <div className="mb-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+            <div className="flex justify-between items-start">
+              <div>
+                <h3 className="font-medium mb-2">Instructions:</h3>
+                <ul className="list-disc pl-5 text-sm text-gray-600">
+                  <li>Drag and drop speakers to rank them from 1st (top) to 6th (bottom)</li>
+                  <li>Rankings should be based on individual speaker performance</li>
+                  <li>Consider clarity, argumentation, rebuttals, and style</li>
+                  <li>Submit your final rankings when ready</li>
+                </ul>
+              </div>
+              <button
+                onClick={() => setShowInstructions(false)}
+                className="text-sm text-blue-500 hover:text-blue-700"
+              >
+                Hide
+              </button>
+            </div>
+          </div>
+        )}
+        
         <p className="text-sm text-gray-600 mb-6">
           Drag and drop speakers to rank them from 1st (top) to 6th (bottom)
         </p>
